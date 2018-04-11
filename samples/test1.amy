@@ -1,0 +1,24 @@
+set aCra_zyV4r: 'test'
+set x: 10
+
+; a comment
+
+define even(a)
+    a % 2 = 0
+
+x is even?
+    print 'test'
+
+x is not even?
+    print 'test'
+
+; broken
+x, y are same?
+    print 'test'
+
+; broken
+x and y are even?
+    print 'test'
+
+x < 10?
+    print 'test'

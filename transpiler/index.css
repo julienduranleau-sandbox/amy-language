@@ -1,0 +1,25 @@
+body {
+    background: #111;
+}
+
+.code-block {
+    box-sizing: border-box;
+    width: 50%;
+    float: left;
+    padding: 25px;
+    color: #fff;
+}
+
+.code-block .title {
+    font-size: 18px;
+    font-weight: bold;
+    font-family: Helvetica;
+}
+
+.code-block .code {
+    font-family: 'Inconsolata';
+    font-size: 16;
+    border: 1px solid #999;
+    padding: 5px;
+    background: #222;
+}
