@@ -4,88 +4,207 @@ class AmyTranspiler {
         return new Promise((resolve, reject) => {
             let transpiler = new AmyTranspiler()
 
-            fetch(file).then(f=>f.text()).then(sourceText => {
-                let js = transpiler.parse(sourceText)
-                resolve(js)
+            fetch(file).then(f=>f.text()).then(amySource => {
+                amySource = amySource.replace(/\r\n/gm, '\n')
+                let jsSource = transpiler.parse(amySource)
+
+                resolve({
+                    jsSource,
+                    amySource
+                })
             })
         })
     }
 
     constructor() {
         this.indentSize = 4
-        this.simpleRules = [
+        this.structureFindAndReplaceRules = [
+
+        ]
+        this.findAndReplaceRules = [
             {
-                name: 'any "=" to "=="',
+                name: 'any "=" to "==="',
+                example: '1 = 2',
                 from: /=/,
                 to: '==='
             },
             {
                 name: 'comments',
-                from: /^;/,
-                to: '//'
+                example: '   ; this is a comment after some whitespace',
+                from: /^\s*;.*\n/g,
+                to: ''
             },
             {
-                name: 'set variableName',
-                from: /set ([A-Za-z0-9_]+):/,
+                name: 'set variable',
+                example: 'set a: 10',
+                from: /set ([A-Za-z0-9_]+) ?:/,
                 to: 'let $1 ='
             },
             {
-                name: 'define aFunction(with, parameters)',
-                from: /define ([A-Za-z0-9_]+)(\([A-Za-z0-9,]\))/,
+                name: 'assign variable',
+                example: 'a: 10',
+                from: /([A-Za-z0-9_]+) ?:/g,
+                to: '$1 ='
+            },
+            {
+                name: 'stop',
+                example: 'stop',
+                from: /stop\n$/,
+                to: 'break;\n'
+            },
+            {
+                name: 'complex arrow range with complex from/to',
+                example: 'a -(+2)-> b',
+                from: /(\(.*\)|[A-Za-z0-9_]+) ?-\(([\+-][A-Za-z0-9_]+)\)-> ?(\(.+\)|[A-Za-z0-9_]+)/,
+                to: '[...range($1, $3, $2)]'
+            },
+            {
+                name: 'simple arrow range',
+                example: '1->10',
+                from: /(\(.*\)|[A-Za-z0-9_]+) ?-> ?(\(.*\)|[A-Za-z0-9_]+)/,
+                to: '[...range($1, $2)]'
+            },
+            {
+                name: 'define a function with parameters',
+                example: 'define areTheSame(a,b,c)',
+                from: /define ([A-Za-z0-9_]+)(\([A-Za-z0-9](, ?[A-Za-z0-9])*\))/,
                 to: 'function $1$2 {'
             },
-
+            {
+                name: 'loop forever',
+                example: 'loop forever',
+                from: /loop forever/,
+                to: 'while (1) {'
+            },
+            {
+                name: 'loops',
+                example: 'loop 1 -> 10 as i',
+                from: /loop (.+) as (.+)/,
+                to: 'for (let $2 of $1) {'
+            },
+            {
+                name: 'class definition with extends',
+                example: 'class Dog from Animal',
+                from: /define ([A-Za-z0-9_]+) from ([A-Za-z0-9_]+)/,
+                to: 'class $1 extends $2 {'
+            },
+            {
+                name: 'class definition',
+                example: 'class Dog from Animal',
+                from: /define ([A-Za-z0-9_]+)?/,
+                to: 'class'
+            },
         ]
     }
 
     parse(rawSrc) {
-        this.showAmySource(rawSrc)
-
         let lines = rawSrc.split('\n')
+
+        lines = lines.map((line, index) => {
+            if (index === lines.length - 1) {
+                return line
+            } else {
+                return line + '\n'
+            }
+        })
 
         let previousIndentLevel = 0
         let indentLevel = 0
+        let context = []
 
-        lines = lines.map(line => {
+        for (let lineNumber = 0; lineNumber < lines.length; lineNumber++) {
+            let amyLine = lines[lineNumber]
+            let line = amyLine
+
             previousIndentLevel = indentLevel
             indentLevel = this.getIndentLevelForLine(line)
 
-            this.simpleRules.forEach(rule => {
-                line = line.replace(rule.from, rule.to)
-            })
+            if (line.search(/\([A-Za-z_\.]/) > -1) {
+                line = this.transformFunctionCalls(line)
+            }
 
-            // when going down indent level(s), add closing bracket(s)
-            if (indentLevel < previousIndentLevel) {
-                let nBracketsToAdd = (previousIndentLevel - indentLevel) / this.indentSize
-                for (let i = 0; i < nBracketsToAdd; i++) {
-                    line = '}\n'+line
+            for (let rule of this.structureFindAndReplaceRules) {
+                if (line.search(rule.from) > -1) {
+                    line = line.replace(rule.from, rule.to)
+                    break
                 }
             }
 
-            if (line.indexOf('?') > -1) {
-                line = this.getConditionForLine(line)
+            for (let rule of this.findAndReplaceRules) {
+                line = line.replace(rule.from, rule.to)
             }
 
-            return line
-        })
+            // when going down indent level(s), add closing bracket(s)
+            if (indentLevel < previousIndentLevel) {
+                let nContextToEnd = (previousIndentLevel - indentLevel) / this.indentSize
+                for (let i = 0; i < nContextToEnd; i++) {
+                    let endingContext = context.pop()
 
-        this.showJsSource(lines.join('\n'))
+                    if (endingContext === 'function') {
+                        lines[lineNumber - 1] = lines[lineNumber - 1].replace(/^(\s+)/, '$1return ')
+                    }
+
+                    line = '}\n' + line
+                }
+            }
+
+            if (amyLine.indexOf('?') > -1) {
+                line = this.getConditionForLine(line)
+                context.push('condition')
+            }
+
+            if (amyLine.indexOf('define') > -1) {
+                context.push('function')
+            }
+
+            if (amyLine.indexOf('loop') > -1) {
+                context.push('loop')
+            }
+
+            lines[lineNumber] = line
+        }
+
+        let result = lines.join('')
+
+        return result
+    }
+
+    transformFunctionCalls(line) {
+        if (line.indexOf('define ') > -1) {
+            return line
+        }
+        let selfCallFunctionFrom = /\(([A-Za-z_][A-Za-z0-9_\.]*)\)/
+        line = line.replace(selfCallFunctionFrom, '$1()')
+
+        let fnWithArgs = /\(([a-zA-Z0-9_\.]+) ([\['(A-Za-z0-9_])/
+        for (let i = 0; i < 1000; i++) {
+            if (line.search(fnWithArgs) === -1) {
+                break
+            }
+
+            line = line.replace(fnWithArgs, '$1($2')
+        }
+
+        return line
     }
 
     getConditionForLine(line) {
-        let lineWithoutNewline = line.replace(/\r?\n|\r/, '')
+        let lineWithoutNewline = line.replace(/\n/, '')
         let newLine = null
         let [left, right] = lineWithoutNewline.split(/is|are/)
 
-        // x is even?
         if (left && right) {
             let params = left.trim().split(' and ')
             right = right.replace(' not ', '!')
-            newLine = right.trim().replace('?', '(' + params.join(',') + ')')
+            params = params.map(param => {
+                return right.trim().replace('?', '(' + param + ')')
+            })
+            newLine = params.join(' && ')
         } else {
             newLine = lineWithoutNewline.replace('?', '')
+            newLine = newLine.replace(' and ', ' && ')
         }
-        newLine = 'if (' + newLine + ') {'
+        newLine = 'if (' + newLine + ') {\n'
         return newLine
     }
 
@@ -97,13 +216,5 @@ class AmyTranspiler {
         } else {
             return 0
         }
-    }
-
-    showAmySource(sourceText) {
-        document.getElementById('amy').innerText = sourceText
-    }
-
-    showJsSource(sourceText) {
-        document.getElementById('js').innerText = sourceText
     }
 }

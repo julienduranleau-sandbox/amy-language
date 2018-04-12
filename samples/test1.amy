@@ -12,13 +12,25 @@ x is even?
 x is not even?
     print 'test'
 
-; broken
 x, y are same?
     print 'test'
 
-; broken
 x and y are even?
     print 'test'
 
 x < 10?
     print 'test'
+
+a -(+2)-> (b - 1)
+
+loop 1 -> 10 as i,k
+    x: x + 10
+
+(doStuff)
+
+(print 'test')
+(format [1,2,3])
+(add (get5), (add 10, 2), (add 23, (add 55,6)))
+
+let a: [1,2,3]
+(a.push 10)
