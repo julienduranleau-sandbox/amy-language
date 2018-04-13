@@ -18,15 +18,31 @@ class AmyTranspiler {
 
     constructor() {
         this.indentSize = 4
-        this.structureFindAndReplaceRules = [
+        this.finalTranspiledSource = null
+        this.lines = null
+        this.outputLines = null
+        this.indentLevel = null
+        this.previousIndentLevel = null
+        this.contextStack = null
 
-        ]
         this.findAndReplaceRules = [
             {
                 name: 'any "=" to "==="',
                 example: '1 = 2',
-                from: /=/,
+                from: /=/g,
                 to: '==='
+            },
+            {
+                name: 'this.',
+                example: '.x',
+                from: /([^.a-zA-Z0-9_])\.([A-Za-z_][A-Za-z0-9_]*)/g,
+                to: '$1this.$2'
+            },
+            {
+                name: 'this. on first line (edge case)',
+                example: '.x',
+                from: /^\.([A-Za-z_][A-Za-z0-9_]*)/g,
+                to: 'this.$1'
             },
             {
                 name: 'comments',
@@ -55,14 +71,20 @@ class AmyTranspiler {
             {
                 name: 'complex arrow range with complex from/to',
                 example: 'a -(+2)-> b',
-                from: /(\(.*\)|[A-Za-z0-9_]+) ?-\(([\+-][A-Za-z0-9_]+)\)-> ?(\(.+\)|[A-Za-z0-9_]+)/,
+                from: /(\(.*\)|[A-Za-z0-9_]+) ?-\(([\+-][A-Za-z0-9_]+)\)-> ?(\(.+\)|[A-Za-z0-9_]+)/g,
                 to: '[...range($1, $3, $2)]'
             },
             {
                 name: 'simple arrow range',
                 example: '1->10',
-                from: /(\(.*\)|[A-Za-z0-9_]+) ?-> ?(\(.*\)|[A-Za-z0-9_]+)/,
+                from: /(\(.*\)|[A-Za-z0-9_]+) ?-> ?(\(.*\)|[A-Za-z0-9_]+)/g,
                 to: '[...range($1, $2)]'
+            },
+            {
+                name: 'define a function without parameters',
+                example: 'define sayHello()',
+                from: /define ([A-Za-z0-9_]+)\(\)/,
+                to: 'function $1() {'
             },
             {
                 name: 'define a function with parameters',
@@ -92,87 +114,168 @@ class AmyTranspiler {
                 name: 'class definition',
                 example: 'class Dog from Animal',
                 from: /define ([A-Za-z0-9_]+)?/,
-                to: 'class'
+                to: 'class $1 {'
             },
         ]
     }
 
     parse(rawSrc) {
-        let lines = rawSrc.split('\n')
+        this.lines = rawSrc.split('\n')
+        this.outputLines = []
+        this.previousIndentLevel = 0
+        this.indentLevel = 0
+        this.contextStack = []
+        this.finalTranspiledSource = null
 
-        lines = lines.map((line, index) => {
-            if (index === lines.length - 1) {
-                return line
-            } else {
-                return line + '\n'
-            }
+        this.lines = this.lines.map((line, i) => {
+            return (i === this.lines.length - 1) ? line : line + '\n'
         })
 
-        let previousIndentLevel = 0
-        let indentLevel = 0
-        let context = []
-
-        for (let lineNumber = 0; lineNumber < lines.length; lineNumber++) {
-            let amyLine = lines[lineNumber]
-            let line = amyLine
-
-            previousIndentLevel = indentLevel
-            indentLevel = this.getIndentLevelForLine(line)
-
-            if (line.search(/\([A-Za-z_\.]/) > -1) {
-                line = this.transformFunctionCalls(line)
-            }
-
-            for (let rule of this.structureFindAndReplaceRules) {
-                if (line.search(rule.from) > -1) {
-                    line = line.replace(rule.from, rule.to)
-                    break
-                }
-            }
-
-            for (let rule of this.findAndReplaceRules) {
-                line = line.replace(rule.from, rule.to)
-            }
-
-            // when going down indent level(s), add closing bracket(s)
-            if (indentLevel < previousIndentLevel) {
-                let nContextToEnd = (previousIndentLevel - indentLevel) / this.indentSize
-                for (let i = 0; i < nContextToEnd; i++) {
-                    let endingContext = context.pop()
-
-                    if (endingContext === 'function') {
-                        lines[lineNumber - 1] = lines[lineNumber - 1].replace(/^(\s+)/, '$1return ')
-                    }
-
-                    line = '}\n' + line
-                }
-            }
-
-            if (amyLine.indexOf('?') > -1) {
-                line = this.getConditionForLine(line)
-                context.push('condition')
-            }
-
-            if (amyLine.indexOf('define') > -1) {
-                context.push('function')
-            }
-
-            if (amyLine.indexOf('loop') > -1) {
-                context.push('loop')
-            }
-
-            lines[lineNumber] = line
+        for (let i = 0, nLines = this.lines.length; i < nLines; i++) {
+            this.parseLine(i)
         }
 
-        let result = lines.join('')
+        // end of file, close remaining open contexts
+        this.indentLevel = 0
+        this.closeIndentLevels()
 
-        return result
+        this.finalTranspiledSource = this.outputLines.join('')
+
+        return this.finalTranspiledSource
+    }
+
+    parseLine(lineNumber) {
+        let amyLine = this.lines[lineNumber]
+        let line = amyLine
+
+        this.previousIndentLevel = this.indentLevel
+        this.indentLevel = this.getIndentLevelForLine(line)
+        this.indentLevel = (this.indentLevel === null)
+            ? this.previousIndentLevel
+            : this.indentLevel
+
+        let currentContextIndex = this.getCurrentContextIndex()
+
+        if (this.contextStack[currentContextIndex] === 'class') {
+            // try to find a method declaration
+            if (line.search(/[A-Za-z0-9_]+\(.*\)/) > -1) {
+                line = line.replace(/([A-Za-z0-9_]+\(.*\))/, '$1 {')
+                this.contextStack.push('method')
+            }
+        }
+
+        // format function calls ex: (print 'test')
+        if (line.search(/\([A-Za-z_\.]/) > -1) {
+            line = this.transformFunctionCalls(line)
+        }
+
+        for (let rule of this.findAndReplaceRules) {
+            line = line.replace(rule.from, rule.to)
+        }
+
+        this.closeIndentLevels()
+
+        // format conditions ex: x is even?
+        if (amyLine.indexOf('?') > -1) {
+            line = this.getConditionForLine(line)
+        }
+
+        let newContext = this.getNewContextFromLine(amyLine, line)
+        if (newContext) {
+            this.contextStack.push(newContext)
+        }
+
+        this.outputLines.push(line)
+    }
+
+    getContextToEndCount() {
+        return Math.max(0, this.previousIndentLevel - this.indentLevel)
+    }
+
+    getCurrentContextIndex() {
+        return this.contextStack.length - 1 - this.getContextToEndCount()
+    }
+
+    // when going down indent level(s), add closing bracket(s) and return
+    closeIndentLevels() {
+        let nContextToEnd = this.getContextToEndCount()
+        let currentContextIndex = this.getCurrentContextIndex()
+        let addBlankLineBackAfterBrackets = false
+
+        let requireNewLine = false
+
+        for (let contextIndex = 0; contextIndex < nContextToEnd; contextIndex++) {
+            let endingContext = this.contextStack.pop()
+
+            if (endingContext === 'function' || endingContext === 'method') {
+                this.addFunctionReturns()
+            }
+
+            // apply closing brackets
+            requireNewLine = this.addClosingBrackets() || requireNewLine
+        }
+
+        if (requireNewLine) {
+
+        }
+
+        if (addBlankLineBackAfterBrackets) {
+            outputLines.push('\n')
+        }
+    }
+
+    addClosingBrackets() {
+        let nContextToEnd = this.getContextToEndCount()
+        let contextIndex = this.getCurrentContextIndex()
+        let addBlankLineBackAfterBrackets = false
+
+        if (this.outputLines[this.outputLines.length - 1].trim().length === 0) {
+            this.outputLines.pop()
+            addBlankLineBackAfterBrackets = true
+        }
+        let remainingIndent = ' '.repeat(this.indentSize).repeat(this.indentLevel + nContextToEnd - contextIndex - 1)
+        this.outputLines.push(`${remainingIndent}}\n`)
+
+        return addBlankLineBackAfterBrackets
+    }
+
+    addFunctionReturns() {
+        let i = 0
+
+        while(1) {
+            let prevLineIndex = this.outputLines.length - 1 - i
+            let prevLine = this.outputLines[prevLineIndex]
+
+            if (prevLine.trim().length !== 0) {
+                this.outputLines[prevLineIndex] = prevLine.replace(/^(\s+)/, '$1return ')
+                break
+            }
+
+            if (i++ === 1000) {
+                throw new Error('Impossible to find a line to apply return to')
+            }
+        }
+    }
+
+    getNewContextFromLine(amyLine, line) {
+        if (amyLine.indexOf('?') > -1) {
+            return 'condition'
+        } else if (line.indexOf('function ') > -1) {
+            return 'function'
+        } else if (line.indexOf('class ') > -1) {
+            return 'class'
+        } else if (amyLine.indexOf('loop') > -1) {
+            return 'loop'
+        } else {
+            return null
+        }
     }
 
     transformFunctionCalls(line) {
         if (line.indexOf('define ') > -1) {
             return line
         }
+
         let selfCallFunctionFrom = /\(([A-Za-z_][A-Za-z0-9_\.]*)\)/
         line = line.replace(selfCallFunctionFrom, '$1()')
 
@@ -190,7 +293,7 @@ class AmyTranspiler {
 
     getConditionForLine(line) {
         let lineWithoutNewline = line.replace(/\n/, '')
-        let newLine = null
+        let condition = null
         let [left, right] = lineWithoutNewline.split(/is|are/)
 
         if (left && right) {
@@ -199,13 +302,17 @@ class AmyTranspiler {
             params = params.map(param => {
                 return right.trim().replace('?', '(' + param + ')')
             })
-            newLine = params.join(' && ')
+            condition = params.join(' && ')
         } else {
-            newLine = lineWithoutNewline.replace('?', '')
-            newLine = newLine.replace(' and ', ' && ')
+            condition = lineWithoutNewline.replace('?', '')
+            condition = condition.replace(' and ', ' && ')
         }
-        newLine = 'if (' + newLine + ') {\n'
-        return newLine
+
+        condition = 'if (' + condition + ') {\n'
+
+        let whitespace = line.match(/^\s*/g)[0]
+
+        return whitespace + condition
     }
 
     getIndentLevelForLine(line) {
@@ -214,7 +321,11 @@ class AmyTranspiler {
         if (spaces) {
             return spaces[0].length / this.indentSize
         } else {
-            return 0
+            if (line.trim().length === 0) {
+                return null
+            } else {
+                return 0
+            }
         }
     }
 }

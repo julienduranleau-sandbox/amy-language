@@ -153,6 +153,10 @@ a: [1,2,3,4]
 -----
 a = [1,2,3,4]
 #############################
+.xyz: 10
+-----
+this.xyz = 10
+#############################
 define Person
     walk()
         .x: 10
@@ -179,14 +183,13 @@ class Person extends Animal {
     }
 }
 #############################
-
-
-
-
-
-
-
-
-
-
+define Human
+    greet()
+        (.say 'Hello')
+-----
+class Human {
+    greet() {
+        return this.say('Hello')
+    }
+}
 #############################
