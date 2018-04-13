@@ -199,7 +199,6 @@ class AmyTranspiler {
     // when going down indent level(s), add closing bracket(s) and return
     closeIndentLevels() {
         let nContextToEnd = this.getContextToEndCount()
-        let currentContextIndex = this.getCurrentContextIndex()
         let addBlankLineBackAfterBrackets = false
 
         let requireNewLine = false
@@ -212,21 +211,16 @@ class AmyTranspiler {
             }
 
             // apply closing brackets
-            requireNewLine = this.addClosingBrackets() || requireNewLine
+            requireNewLine = this.addClosingBrackets(contextIndex) || requireNewLine
         }
 
         if (requireNewLine) {
-
-        }
-
-        if (addBlankLineBackAfterBrackets) {
-            outputLines.push('\n')
+            this.outputLines.push('\n')
         }
     }
 
-    addClosingBrackets() {
+    addClosingBrackets(contextIndex) {
         let nContextToEnd = this.getContextToEndCount()
-        let contextIndex = this.getCurrentContextIndex()
         let addBlankLineBackAfterBrackets = false
 
         if (this.outputLines[this.outputLines.length - 1].trim().length === 0) {

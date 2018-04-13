@@ -1,2 +1,10 @@
 define even(a)
     a % 2 = 0
+
+define Person
+    walk()
+        .x is event?
+            .x: 10
+
+    jump(height)
+        .y: height
