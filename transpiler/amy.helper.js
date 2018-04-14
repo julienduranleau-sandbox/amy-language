@@ -14,3 +14,10 @@ function range(start, end, increment) {
 
     return a
 }
+
+window.random = Math.random
+window.sin = Math.sin
+window.cos = Math.cos
+window.tan = Math.tan
+window.atan = Math.atan
+window.atan2 = Math.atan2

@@ -1,10 +1,40 @@
-define even(a)
-    a % 2 = 0
+define Particle
+    constructor()
+        .x: 0
+        .y: 0
+        .vx: 0
+        .vy: 0
 
-define Person
-    walk()
-        .x is event?
-            .x: 10
+        (.addForce (random), (random))
 
-    jump(height)
-        .y: height
+    addForce(fx, fy)
+        .vx: .vx + fx
+        .vy: .vy + fy
+
+    update()
+        .x: .x + .vx
+        .y: .y + .vy
+
+    log()
+        set str: `x: ${(.x.toFixed 2)}`
+        str: `${str}, y: ${(.y.toFixed 2)}`
+        out str
+
+
+set particles: []
+(init)
+
+define init()
+    loop 1->5 as i
+        (particles.push Particle())
+
+    (setInterval updateLoop, 2000)
+    (updateLoop)
+
+define updateLoop()
+    loop 0->(particles.length - 1) as i
+        set p: particles[i]
+        (p.update)
+        (console.log (p.log))
+
+    (console.log '-----------')

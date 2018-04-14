@@ -5,8 +5,13 @@ class AmyTranspiler {
             let transpiler = new AmyTranspiler()
 
             fetch(file).then(f=>f.text()).then(amySource => {
+                let startDate = Date.now()
+
                 amySource = amySource.replace(/\r\n/gm, '\n')
                 let jsSource = transpiler.parse(amySource)
+
+                let totalTime = ((Date.now() - startDate) / 1000).toFixed(4)
+                console.log(`%c Compiled in ${totalTime} seconds`, 'background: #0f0')
 
                 resolve({
                     jsSource,
@@ -51,6 +56,12 @@ class AmyTranspiler {
                 to: ''
             },
             {
+                name: 'return',
+                example: 'out 1 + 1',
+                from: /([\s]+)out /,
+                to: '$1return '
+            },
+            {
                 name: 'set variable',
                 example: 'set a: 10',
                 from: /set ([A-Za-z0-9_]+) ?:/,
@@ -71,13 +82,13 @@ class AmyTranspiler {
             {
                 name: 'complex arrow range with complex from/to',
                 example: 'a -(+2)-> b',
-                from: /(\(.*\)|[A-Za-z0-9_]+) ?-\(([\+-][A-Za-z0-9_]+)\)-> ?(\(.+\)|[A-Za-z0-9_]+)/g,
+                from: /(\(.*\)|[A-Za-z0-9_.]+) ?-\(([\+-][A-Za-z0-9_.]+)\)-> ?(\(.+\)|[A-Za-z0-9_]+)/g,
                 to: '[...range($1, $3, $2)]'
             },
             {
                 name: 'simple arrow range',
                 example: '1->10',
-                from: /(\(.*\)|[A-Za-z0-9_]+) ?-> ?(\(.*\)|[A-Za-z0-9_]+)/g,
+                from: /(\(.*\)|[A-Za-z0-9_.]+) ?-> ?(\(.*\)|[A-Za-z0-9_.]+)/g,
                 to: '[...range($1, $2)]'
             },
             {
@@ -116,6 +127,12 @@ class AmyTranspiler {
                 from: /define ([A-Za-z0-9_]+)?/,
                 to: 'class $1 {'
             },
+            {
+                name: 'new Class instance',
+                example: 'Particle()',
+                from: /([^A-Za-z0-9._])([A-Z][A-Za-z0-9._]*\()/,
+                to: '$1new $2'
+            },
         ]
     }
 
@@ -137,7 +154,7 @@ class AmyTranspiler {
 
         // end of file, close remaining open contexts
         this.indentLevel = 0
-        this.closeIndentLevels()
+        this.closeIndentLevels(true)
 
         this.finalTranspiledSource = this.outputLines.join('')
 
@@ -162,16 +179,18 @@ class AmyTranspiler {
                 line = line.replace(/([A-Za-z0-9_]+\(.*\))/, '$1 {')
                 this.contextStack.push('method')
             }
-        }
-
-        // format function calls ex: (print 'test')
-        if (line.search(/\([A-Za-z_\.]/) > -1) {
-            line = this.transformFunctionCalls(line)
+        } else {
+            // format function calls ex: (print 'test')
+            if (line.search(/\([A-Za-z_\.]/) > -1) {
+                line = this.transformFunctionCalls(line, amyLine)
+            }
         }
 
         for (let rule of this.findAndReplaceRules) {
             line = line.replace(rule.from, rule.to)
         }
+
+
 
         this.closeIndentLevels()
 
@@ -196,8 +215,7 @@ class AmyTranspiler {
         return this.contextStack.length - 1 - this.getContextToEndCount()
     }
 
-    // when going down indent level(s), add closing bracket(s) and return
-    closeIndentLevels() {
+    closeIndentLevels(isEndOfFile) {
         let nContextToEnd = this.getContextToEndCount()
         let addBlankLineBackAfterBrackets = false
 
@@ -207,14 +225,14 @@ class AmyTranspiler {
             let endingContext = this.contextStack.pop()
 
             if (endingContext === 'function' || endingContext === 'method') {
-                this.addFunctionReturns()
+                //this.addFunctionReturns()
             }
 
             // apply closing brackets
             requireNewLine = this.addClosingBrackets(contextIndex) || requireNewLine
         }
 
-        if (requireNewLine) {
+        if (requireNewLine && !isEndOfFile) {
             this.outputLines.push('\n')
         }
     }
@@ -233,6 +251,7 @@ class AmyTranspiler {
         return addBlankLineBackAfterBrackets
     }
 
+    /*
     addFunctionReturns() {
         let i = 0
 
@@ -250,6 +269,7 @@ class AmyTranspiler {
             }
         }
     }
+    */
 
     getNewContextFromLine(amyLine, line) {
         if (amyLine.indexOf('?') > -1) {
@@ -265,12 +285,12 @@ class AmyTranspiler {
         }
     }
 
-    transformFunctionCalls(line) {
-        if (line.indexOf('define ') > -1) {
+    transformFunctionCalls(line, amyLine) {
+        if (amyLine.indexOf('define ') > -1) {
             return line
         }
 
-        let selfCallFunctionFrom = /\(([A-Za-z_][A-Za-z0-9_\.]*)\)/
+        let selfCallFunctionFrom = /\(([A-Za-z_][A-Za-z0-9_\.]*)\)/g
         line = line.replace(selfCallFunctionFrom, '$1()')
 
         let fnWithArgs = /\(([a-zA-Z0-9_\.]+) ([\['(A-Za-z0-9_])/
@@ -288,11 +308,10 @@ class AmyTranspiler {
     getConditionForLine(line) {
         let lineWithoutNewline = line.replace(/\n/, '')
         let condition = null
-        let [left, right] = lineWithoutNewline.split(/is|are/)
-
+        let [left, right] = lineWithoutNewline.split(/ is | are /)
         if (left && right) {
             let params = left.trim().split(' and ')
-            right = right.replace(' not ', '!')
+            right = right.replace(/([( ])?not /g, '!')
             params = params.map(param => {
                 return right.trim().replace('?', '(' + param + ')')
             })

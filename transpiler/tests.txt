@@ -17,7 +17,7 @@ define even(a)
     a % 2 = 0
 -----
 function even(a) {
-    return a % 2 === 0
+    a % 2 === 0
 }
 #############################
 define even(a, b,c)
@@ -27,7 +27,7 @@ define even(a, b,c)
 -----
 function even(a, b,c) {
     let b = 20
-    return a % b === 0
+    a % b === 0
 }
 #############################
 x is even?
@@ -169,17 +169,18 @@ class Person {
         this.x = 10
     }
 
-    jump(height)
+    jump(height) {
         this.y = height
+    }
 }
 #############################
 define Dog from Animal
     walk()
         .x: .x + 1
 -----
-class Person extends Animal {
+class Dog extends Animal {
     walk() {
-        return this.x = this.x + 1
+        this.x = this.x + 1
     }
 }
 #############################
@@ -189,7 +190,17 @@ define Human
 -----
 class Human {
     greet() {
-        return this.say('Hello')
+        this.say('Hello')
+    }
+}
+#############################
+define Human
+    greet()
+        (.say .msg)
+-----
+class Human {
+    greet() {
+        this.say(this.msg)
     }
 }
 #############################

@@ -1,6 +1,6 @@
 class AmyTests {
 
-    static run(testFile) {
+    static run(testFile, start, end) {
         fetch(testFile).then(req => req.text()).then(text => {
             // convert crlf to lf if necessary
             text = text.replace(/\r\n/gm, '\n')
@@ -23,6 +23,11 @@ class AmyTests {
                 }
             }
 
+            if (!start) start = 0
+            if (!end) end = tests.length - 1
+
+            tests = tests.splice(start, end)
+
             this.runTests(tests)
         })
     }
@@ -31,11 +36,12 @@ class AmyTests {
         let errorsFound = []
         let transpiler = new AmyTranspiler()
 
-        tests.forEach(test => {
+        tests.forEach((test, i) => {
             let transpiled = transpiler.parse(test.from)
 
             if (transpiled !== test.to) {
                 errorsFound.push({
+                    index: i,
                     from: test.from,
                     to: test.to,
                     result: transpiled
@@ -45,19 +51,20 @@ class AmyTests {
 
         if (errorsFound.length) {
             let errorWord = (errorsFound.length > 1) ? 'errors' : 'error'
-            console.log('%c ' + errorsFound.length + ' ' + errorWord + ' found ', 'background: #f00;')
+            console.log(`%c ${errorsFound.length} ${errorWord} found in ${tests.length} tests`, 'background: #f00;')
 
             console.log(errorsFound)
 
             console.log('')
             errorsFound.forEach(error => {
+                console.log(`%c Test #${error.index} `, 'background:#999; font-weight: bold;color:#fff')
                 console.log(error.from)
-                console.log('%c' + error.to, 'background:#cfc')
-                console.log('%c' + error.result, 'background:#fcc')
+                console.log(`%c${error.to}`, 'background:#cfc')
+                console.log(`%c${error.result}`, 'background:#fcc')
                 console.log('')
             })
         } else {
-            console.log('%c No errors found ', 'background: #0f0')
+            console.log(`%c No errors found in ${tests.length} tests`, 'background: #0f0')
         }
     }
 }
